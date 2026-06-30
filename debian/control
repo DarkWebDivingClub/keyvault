@@ -1,0 +1,14 @@
+Source: keyvault-cli
+Section: utils
+Priority: optional
+Maintainer: Rene Malmgren <duke_h3@dwdc.club>
+Build-Depends: debhelper-compat (= 13), openjdk-21-jdk-headless, maven
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+
+Package: keyvault-cli
+Architecture: all
+Depends: ${misc:Depends}, openjdk-21-jre-headless
+Description: KeyVault seed management CLI
+ Command-line tool for BIP-39 seed import and management.
+ Part of the KeyMaster ecosystem.

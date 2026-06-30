@@ -1,0 +1,18 @@
+#!/usr/bin/make -f
+
+export JAVA_HOME = /usr/lib/jvm/java-21-openjdk-amd64
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	mvn clean package -DskipTests
+
+override_dh_auto_install:
+	install -D -m 644 club.dwdc.keyvault.cli/target/kv-cli.jar \
+		debian/keyvault-cli/usr/lib/keyvault-cli/kv-cli.jar
+	install -D -m 755 debian/kv-cli.sh \
+		debian/keyvault-cli/usr/bin/kv-cli
+
+override_dh_auto_test:
+	# skip tests during package build

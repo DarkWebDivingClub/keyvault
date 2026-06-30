@@ -1,0 +1,5 @@
+keyvault-cli (0.1.0) unstable; urgency=medium
+
+  * Initial Debian packaging
+
+ -- Rene Malmgren <duke_h3@dwdc.club>  Mon, 30 Jun 2026 12:00:00 +0200
