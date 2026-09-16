@@ -10,7 +10,7 @@
     </parent>
 
     <artifactId>club.dwdc.keyvault.cli</artifactId>
-    <name>club.dwdc.keyvault.cli</name>
+    <name>keyvault-cli</name>
 
     <dependencies>
         <dependency>

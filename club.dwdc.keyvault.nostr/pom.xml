@@ -10,7 +10,7 @@
     </parent>
 
     <artifactId>club.dwdc.keyvault.nostr</artifactId>
-    <name>club.dwdc.keyvault.nostr</name>
+    <name>keyvault-nostr</name>
 
     <repositories>
         <repository>

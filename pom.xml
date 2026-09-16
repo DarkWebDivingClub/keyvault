@@ -8,7 +8,7 @@
     <version>0.2.0</version>
     <packaging>pom</packaging>
 
-    <name>club.dwdc.keyvault</name>
+    <name>keyvault</name>
     <description>Minimal KeyVault modules used by DWDC KeyMaster.</description>
 
     <licenses>

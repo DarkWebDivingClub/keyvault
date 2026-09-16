@@ -10,7 +10,7 @@
     </parent>
 
     <artifactId>club.dwdc.keyvault.desktop</artifactId>
-    <name>club.dwdc.keyvault.desktop</name>
+    <name>keyvault-desktop</name>
 
     <dependencies>
         <dependency>

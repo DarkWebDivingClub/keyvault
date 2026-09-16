@@ -65,9 +65,12 @@ class KeyVaultIdentityTest {
 
         VaultResult expected = vault.execute(KeyVault.FN_GET_PUBLIC_KEY, null, path);
         assertTrue(expected.isOk());
+        // Vault returns 33-byte compressed; identity strips to 32-byte x-only
+        assertEquals(33, expected.data().length);
+        byte[] xOnly = java.util.Arrays.copyOfRange(expected.data(), 1, 33);
 
         PublicKey pubKey = identityAlice.getPublicKey();
-        assertArrayEquals(expected.data(), pubKey.getRawData());
+        assertArrayEquals(xOnly, pubKey.getRawData());
     }
 
     @Test

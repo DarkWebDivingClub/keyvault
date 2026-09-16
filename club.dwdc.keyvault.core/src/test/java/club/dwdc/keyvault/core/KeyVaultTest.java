@@ -81,11 +81,14 @@ class KeyVaultTest {
     // ── Schnorr / Nostr public key ───────────────────────────────────────
 
     @Test
-    void getSchnorrPublicKeyReturns32Bytes() {
+    void getSchnorrPublicKeyReturnsCompressed33Bytes() {
         VaultResult result = vault.execute(KeyVault.FN_GET_PUBLIC_KEY, null,
                 PURPOSE, NOSTR, NOSTR_IDENTITY, ALG_SCHNORR, DEFAULT_CONFIG);
         assertTrue(result.isOk());
-        assertEquals(32, result.data().length);
+        assertEquals(33, result.data().length);
+        byte prefix = result.data()[0];
+        assertTrue(prefix == 0x02 || prefix == 0x03,
+                "compressed key must start with 0x02 or 0x03");
     }
 
     @Test
@@ -100,8 +103,7 @@ class KeyVaultTest {
 
         // Independent derivation using ECKey directly
         byte[] compressed = ECKey.fromPrivate(seedResult.data(), true).getPubKey();
-        byte[] expected = Arrays.copyOfRange(compressed, 1, 33);
-        assertArrayEquals(expected, pubResult.data());
+        assertArrayEquals(compressed, pubResult.data());
     }
 
     // ── FN_SIGN + Schnorr ────────────────────────────────────────────────
@@ -354,6 +356,81 @@ class KeyVaultTest {
         VaultResult result = vault.execute(KeyVault.FN_GET_PUBLIC_KEY, null,
                 PURPOSE, SSH, IDENTITY);
         assertEquals(VaultResult.ERR_INVALID_PATH, result.status());
+    }
+
+    // ── Chain code ────────────────────────────────────────────────────────
+
+    @Test
+    void getPublicKey_returnsChainCode_ed25519() {
+        VaultResult result = vault.execute(KeyVault.FN_GET_PUBLIC_KEY, null,
+                PURPOSE, SSH, IDENTITY, ALG_ED25519, DEFAULT_CONFIG);
+        assertTrue(result.isOk());
+        assertNotNull(result.chainCode());
+        assertEquals(32, result.chainCode().length);
+    }
+
+    @Test
+    void getPublicKey_returnsChainCode_schnorr() {
+        VaultResult result = vault.execute(KeyVault.FN_GET_PUBLIC_KEY, null,
+                PURPOSE, NOSTR, NOSTR_IDENTITY, ALG_SCHNORR, DEFAULT_CONFIG);
+        assertTrue(result.isOk());
+        assertNotNull(result.chainCode());
+        assertEquals(32, result.chainCode().length);
+    }
+
+    @Test
+    void getPublicKey_chainCodeIsDeterministic() {
+        int[] path = {PURPOSE, NOSTR, NOSTR_IDENTITY, ALG_SCHNORR, DEFAULT_CONFIG};
+        VaultResult first = vault.execute(KeyVault.FN_GET_PUBLIC_KEY, null, path);
+        VaultResult second = vault.execute(KeyVault.FN_GET_PUBLIC_KEY, null, path);
+        assertArrayEquals(first.chainCode(), second.chainCode());
+    }
+
+    @Test
+    void getPublicKey_differentPaths_differentChainCodes() {
+        int bobId = Bip32KeyDerivator.mangle("bob@nostr.com") | H;
+        VaultResult alice = vault.execute(KeyVault.FN_GET_PUBLIC_KEY, null,
+                PURPOSE, NOSTR, NOSTR_IDENTITY, ALG_SCHNORR, DEFAULT_CONFIG);
+        VaultResult bob = vault.execute(KeyVault.FN_GET_PUBLIC_KEY, null,
+                PURPOSE, NOSTR, bobId, ALG_SCHNORR, DEFAULT_CONFIG);
+        assertFalse(Arrays.equals(alice.chainCode(), bob.chainCode()));
+    }
+
+    @Test
+    void getPublicKey_chainCodeMatchesDerivator() {
+        var derivator = new Bip32KeyDerivator(MNEMONIC);
+        int[] path = {PURPOSE, NOSTR, NOSTR_IDENTITY, ALG_SCHNORR, DEFAULT_CONFIG};
+        VaultResult result = vault.execute(KeyVault.FN_GET_PUBLIC_KEY, null, path);
+        byte[] expected = derivator.deriveKey(path).getChainCode();
+        assertArrayEquals(expected, result.chainCode());
+    }
+
+    @Test
+    void exportSeed_noChainCode() {
+        VaultResult result = vault.execute(KeyVault.FN_EXPORT_SEED, null,
+                PURPOSE, SSH, IDENTITY, ALG_ED25519, DEFAULT_CONFIG);
+        assertTrue(result.isOk());
+        assertNull(result.chainCode());
+    }
+
+    @Test
+    void sign_noChainCode() {
+        VaultResult result = vault.execute(KeyVault.FN_SIGN, new byte[32],
+                PURPOSE, NOSTR, NOSTR_IDENTITY, ALG_SCHNORR, DEFAULT_CONFIG);
+        assertTrue(result.isOk());
+        assertNull(result.chainCode());
+    }
+
+    @Test
+    void ecdh_noChainCode() {
+        int bobId = Bip32KeyDerivator.mangle("bob@nostr.com") | H;
+        int[] pathB = {PURPOSE, NOSTR, bobId, ALG_SCHNORR, DEFAULT_CONFIG};
+        VaultResult pubB = vault.execute(KeyVault.FN_GET_PUBLIC_KEY, null, pathB);
+
+        VaultResult result = vault.execute(KeyVault.FN_KEY_AGREEMENT, pubB.data(),
+                PURPOSE, NOSTR, NOSTR_IDENTITY, ALG_SCHNORR, DEFAULT_CONFIG);
+        assertTrue(result.isOk());
+        assertNull(result.chainCode());
     }
 
     // ── Test helpers ─────────────────────────────────────────────────────

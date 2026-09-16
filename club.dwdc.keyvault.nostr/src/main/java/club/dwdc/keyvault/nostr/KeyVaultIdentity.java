@@ -59,7 +59,9 @@ public class KeyVaultIdentity implements IIdentity {
                 throw new IllegalStateException(
                         "Vault FN_GET_PUBLIC_KEY failed: status=" + result.status());
             }
-            cachedPublicKey = new PublicKey(result.data());
+            // Vault returns 33-byte compressed; Nostr uses 32-byte x-only
+            byte[] xOnly = java.util.Arrays.copyOfRange(result.data(), 1, 33);
+            cachedPublicKey = new PublicKey(xOnly);
         }
         return cachedPublicKey;
     }

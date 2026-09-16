@@ -1,10 +1,11 @@
 package club.dwdc.keyvault.core;
 
 /**
- * Result of a vault operation. Carries a numeric status code
- * and the output bytes. Status 0 = success; non-zero = error.
+ * Result of a vault operation. Carries a numeric status code,
+ * the output bytes, and an optional BIP-32 chain code.
+ * Status 0 = success; non-zero = error.
  */
-public record VaultResult(int status, byte[] data) {
+public record VaultResult(int status, byte[] data, byte[] chainCode) {
 
     /** Operation completed successfully. */
     public static final int OK = 0;
@@ -29,10 +30,14 @@ public record VaultResult(int status, byte[] data) {
     }
 
     public static VaultResult ok(byte[] data) {
-        return new VaultResult(OK, data);
+        return new VaultResult(OK, data, null);
+    }
+
+    public static VaultResult ok(byte[] data, byte[] chainCode) {
+        return new VaultResult(OK, data, chainCode);
     }
 
     public static VaultResult error(int status) {
-        return new VaultResult(status, null);
+        return new VaultResult(status, null, null);
     }
 }

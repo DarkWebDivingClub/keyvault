@@ -45,11 +45,11 @@ class SchnorrSignTest {
         int cfg = new ConfigField(0, 0).toIndex() | H;
         int[] path = {PURPOSE, NOSTR, identity, alg, cfg};
 
-        // Get the public key for verification
+        // Get the public key for verification (compressed 33 bytes → x-only 32 bytes)
         VaultResult pubResult = vault.execute(KeyVault.FN_GET_PUBLIC_KEY, null, path);
         assertTrue(pubResult.isOk());
-        byte[] pubKey = pubResult.data();
-        assertEquals(32, pubKey.length);
+        assertEquals(33, pubResult.data().length);
+        byte[] pubKey = java.util.Arrays.copyOfRange(pubResult.data(), 1, 33);
 
         // Sign a 32-byte message
         byte[] message = new byte[32]; // all zeros
@@ -117,7 +117,7 @@ class SchnorrSignTest {
 
         VaultResult pubResult = vault.execute(KeyVault.FN_GET_PUBLIC_KEY, null, path);
         assertTrue(pubResult.isOk());
-        byte[] pubKey = pubResult.data();
+        byte[] pubKey = java.util.Arrays.copyOfRange(pubResult.data(), 1, 33);
 
         // Sign and verify 10 different messages
         for (int i = 0; i < 10; i++) {

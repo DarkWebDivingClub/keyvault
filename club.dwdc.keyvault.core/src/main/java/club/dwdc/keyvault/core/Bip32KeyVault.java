@@ -14,6 +14,7 @@ import org.bouncycastle.crypto.params.X25519PrivateKeyParameters;
 import org.bouncycastle.crypto.params.X25519PublicKeyParameters;
 import org.bouncycastle.math.ec.ECPoint;
 import org.bouncycastle.math.ec.custom.sec.SecP256K1Curve;
+import org.bitcoinj.crypto.DeterministicKey;
 import org.bitcoinj.crypto.ECKey;
 
 import java.math.BigInteger;
@@ -71,17 +72,18 @@ public class Bip32KeyVault implements KeyVault {
 
     private VaultResult getPublicKey(int[] path) {
         int alg = extractAlg(path);
-        byte[] seed = derivator.derive(path);
+        DeterministicKey key = derivator.deriveKey(path);
+        byte[] seed = key.getPrivKeyBytes();
+        byte[] chainCode = key.getChainCode();
 
         return switch (alg) {
             case AlgField.ALG_ED25519 -> {
                 EdDSAPrivateKeySpec privSpec = new EdDSAPrivateKeySpec(seed, ED25519_SPEC);
-                yield VaultResult.ok(privSpec.getA().toByteArray());
+                yield VaultResult.ok(privSpec.getA().toByteArray(), chainCode);
             }
             case AlgField.ALG_SCHNORR -> {
                 byte[] compressed = ECKey.fromPrivate(seed, true).getPubKey();
-                // x-only Schnorr public key: strip the 0x02/0x03 prefix byte
-                yield VaultResult.ok(Arrays.copyOfRange(compressed, 1, 33));
+                yield VaultResult.ok(compressed, chainCode);
             }
             default -> VaultResult.error(VaultResult.ERR_UNSUPPORTED_ALGORITHM);
         };

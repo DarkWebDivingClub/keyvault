@@ -96,29 +96,30 @@ class EcdhTest {
     }
 
     @Test
-    void secp256k1EcdhAccepts33ByteCompressedKey() {
+    void secp256k1EcdhAcceptsXOnlyAndCompressedKey() {
         int aliceId = Bip32KeyDerivator.mangle("alice@compressed.com") | H;
         int bobId = Bip32KeyDerivator.mangle("bob@compressed.com") | H;
         int[] pathA = {PURPOSE, NOSTR, aliceId, ALG_SCHNORR, CFG};
         int[] pathB = {PURPOSE, NOSTR, bobId, ALG_SCHNORR, CFG};
 
-        // Get 32-byte x-only key and prepend 0x02
+        // FN_GET_PUBLIC_KEY returns 33-byte compressed key
         VaultResult pubB = vault.execute(KeyVault.FN_GET_PUBLIC_KEY, null, pathB);
         assertTrue(pubB.isOk());
-        byte[] xOnly = pubB.data();
+        byte[] compressed = pubB.data();
+        assertEquals(33, compressed.length);
 
-        byte[] compressed = new byte[33];
-        compressed[0] = 0x02;
-        System.arraycopy(xOnly, 0, compressed, 1, 32);
+        // Strip prefix for x-only
+        byte[] xOnly = Arrays.copyOfRange(compressed, 1, 33);
 
-        // ECDH with 33-byte compressed key should produce same result as 32-byte x-only
+        // ECDH with 33-byte compressed key and 32-byte x-only key
+        // must produce the same shared secret (x-coordinate is the same)
         VaultResult sharedXOnly = vault.execute(KeyVault.FN_KEY_AGREEMENT, xOnly, pathA);
         VaultResult sharedCompressed = vault.execute(KeyVault.FN_KEY_AGREEMENT, compressed, pathA);
 
         assertTrue(sharedXOnly.isOk());
         assertTrue(sharedCompressed.isOk());
         assertArrayEquals(sharedXOnly.data(), sharedCompressed.data(),
-                "33-byte compressed key (0x02 prefix) should give same result as 32-byte x-only");
+                "ECDH shared secret must be the same for x-only and compressed key");
     }
 
     @Test
