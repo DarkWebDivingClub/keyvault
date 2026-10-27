@@ -17,10 +17,22 @@ mvn test
 mvn install
 ```
 
+This needs the patched bitcoinj fork in `~/.m2` first. `keyvault.core`
+depends on `org.bitcoinj:bitcoinj-core:0.18-dwdc.1`, which is not on any
+public repository, so build and install it before keyvault:
+
+```sh
+cd ~/git/bitcoinj
+JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew publishToMavenLocal
+```
+
+JDK 21 is required and must be set explicitly: Gradle 8.13 cannot parse
+JDK 25 class files, and JDK 25 is the default `java` on current Ubuntu.
+
 Android dependency target:
 
 ```kotlin
-implementation("club.dwdc:club.dwdc.keyvault.nostr:0.1.0")
+implementation("club.dwdc:club.dwdc.keyvault.nostr:0.3.0")
 ```
 
 ## License
