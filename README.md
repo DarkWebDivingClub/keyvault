@@ -17,31 +17,32 @@ mvn test
 mvn install
 ```
 
-This needs the patched bitcoinj fork in `~/.m2` first. `keyvault.core`
-depends on `org.bitcoinj:bitcoinj-core:0.18-dwdc.1`, which is not on any
-public repository, so build and install it before keyvault:
+This needs **two** patched forks installed into `~/.m2` first, in this
+order — neither is on any public repository:
 
 ```sh
-cd ~/git/bitcoinj
-JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew publishToMavenLocal
+export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64
+
+git clone https://github.com/DarkWebDivingClub/nostr-java.git
+cd nostr-java && mvn install -DskipTests && cd ..
+
+git clone https://github.com/DarkWebDivingClub/bitcoinj.git
+cd bitcoinj && ./gradlew publishToMavenLocal && cd ..
 ```
+
+`club.dwdc.keyvault.core` needs `org.bitcoinj:bitcoinj-core:0.18-dwdc.1`,
+and `club.dwdc.keyvault.nostr` needs
+`xyz.tcheeric:nostr-java-identity:2.4.2-dwdc.1` for `nostr.id.IIdentity`
+— a class present in no upstream release. Both forks carry a `FORK.md`
+explaining what is patched and why.
 
 JDK 21 is required and must be set explicitly: Gradle 8.13 cannot parse
 JDK 25 class files, and JDK 25 is the default `java` on current Ubuntu.
 
-> **Known limitation — a clean machine cannot build `keyvault.nostr` yet.**
-> It depends on `xyz.tcheeric:nostr-java-identity:2.0.0`, but the
-> artifact published on Maven Central under that coordinate does not
-> contain `nostr.id.IIdentity`. The class exists only in the
-> [FlowRateHQ fork](https://github.com/FlowRateHQ/nostr-java), which has
-> to be built and installed into `~/.m2` first. The coordinate resolves
-> successfully, so the failure appears as a missing class at compile
-> time. Tracked as keymaster mission 46.3.
-
 Android dependency target:
 
 ```kotlin
-implementation("club.dwdc:club.dwdc.keyvault.nostr:0.3.0")
+implementation("club.dwdc:club.dwdc.keyvault.nostr:0.4.0")
 ```
 
 ## License
