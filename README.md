@@ -27,7 +27,7 @@ git clone https://github.com/DarkWebDivingClub/nostr-java.git
 cd nostr-java && mvn install -DskipTests && cd ..
 
 git clone https://github.com/DarkWebDivingClub/bitcoinj.git
-cd bitcoinj && ./gradlew publishToMavenLocal && cd ..
+cd bitcoinj && gradle publishToMavenLocal && cd ..
 ```
 
 `club.dwdc.keyvault.core` needs `org.bitcoinj:bitcoinj-core:0.18-dwdc.1`,
@@ -36,8 +36,10 @@ and `club.dwdc.keyvault.nostr` needs
 — a class present in no upstream release. Both forks carry a `FORK.md`
 explaining what is patched and why.
 
-JDK 21 is required and must be set explicitly: Gradle 8.13 cannot parse
-JDK 25 class files, and JDK 25 is the default `java` on current Ubuntu.
+JDK 21 is required and must be set explicitly: Gradle cannot parse JDK
+25 class files, and JDK 25 is the default `java` on current Ubuntu. A
+**system-installed Gradle** is also required — bitcoinj's upstream
+`.gitignore` excludes the wrapper, so a fresh clone has no `./gradlew`.
 
 Android dependency target:
 
