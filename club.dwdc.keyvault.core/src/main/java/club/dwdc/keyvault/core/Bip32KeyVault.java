@@ -6,7 +6,10 @@ import net.i2p.crypto.eddsa.spec.EdDSANamedCurveTable;
 import net.i2p.crypto.eddsa.spec.EdDSAParameterSpec;
 import net.i2p.crypto.eddsa.spec.EdDSAPrivateKeySpec;
 import org.bouncycastle.crypto.agreement.X25519Agreement;
+import org.bouncycastle.crypto.digests.SHA256Digest;
 import org.bouncycastle.crypto.ec.CustomNamedCurves;
+import org.bouncycastle.crypto.signers.ECDSASigner;
+import org.bouncycastle.crypto.signers.HMacDSAKCalculator;
 import org.bouncycastle.crypto.params.ECDomainParameters;
 import org.bouncycastle.crypto.params.ECPrivateKeyParameters;
 import org.bouncycastle.crypto.params.ECPublicKeyParameters;
@@ -32,6 +35,13 @@ public class Bip32KeyVault implements KeyVault {
     static {
         var params = CustomNamedCurves.getByName("secp256k1");
         SECP256K1 = new ECDomainParameters(
+                params.getCurve(), params.getG(), params.getN(), params.getH());
+    }
+
+    private static final ECDomainParameters P256;
+    static {
+        var params = CustomNamedCurves.getByName("secp256r1");
+        P256 = new ECDomainParameters(
                 params.getCurve(), params.getG(), params.getN(), params.getH());
     }
 
@@ -68,6 +78,12 @@ public class Bip32KeyVault implements KeyVault {
         return (algIndex >> 16) & 0x7FFF;
     }
 
+    /** Extract the variant from path level 4 (index 3). For ECDSA the variant selects the curve. */
+    private static int extractVariant(int[] path) {
+        int algIndex = path[3] & 0x7FFFFFFF;
+        return (algIndex >> 8) & 0xFF;
+    }
+
     // ── FN_GET_PUBLIC_KEY ────────────────────────────────────────────────
 
     private VaultResult getPublicKey(int[] path) {
@@ -85,6 +101,7 @@ public class Bip32KeyVault implements KeyVault {
                 byte[] compressed = ECKey.fromPrivate(seed, true).getPubKey();
                 yield VaultResult.ok(compressed, chainCode);
             }
+            case AlgField.ALG_ECDSA -> ecdsaPublicKey(seed, extractVariant(path), chainCode);
             default -> VaultResult.error(VaultResult.ERR_UNSUPPORTED_ALGORITHM);
         };
     }
@@ -102,6 +119,7 @@ public class Bip32KeyVault implements KeyVault {
         return switch (alg) {
             case AlgField.ALG_SCHNORR -> schnorrSign(seed, payload);
             case AlgField.ALG_ED25519 -> ed25519Sign(seed, payload);
+            case AlgField.ALG_ECDSA -> ecdsaSign(seed, extractVariant(path), payload);
             default -> VaultResult.error(VaultResult.ERR_UNSUPPORTED_ALGORITHM);
         };
     }
@@ -175,6 +193,85 @@ public class Bip32KeyVault implements KeyVault {
             sig.initSign(privKey);
             sig.update(message);
             return VaultResult.ok(sig.sign());
+        } catch (Exception ex) {
+            return VaultResult.error(VaultResult.ERR_CRYPTO_FAILURE);
+        }
+    }
+
+    // ── ECDSA (alg 3) ────────────────────────────────────────────────────
+
+    /**
+     * The ECDSA curve for a variant, or null if the vault does not support it.
+     * Variant 4 (Brainpool P256r1) is valid for direct-key derivation but not
+     * implemented yet. Variants 2, 3, 5 and 6 have orders longer than 32 bytes,
+     * so they cannot use a 32-byte leaf at all.
+     */
+    static ECDomainParameters ecdsaCurve(int variant) {
+        return switch (variant) {
+            case 0 -> SECP256K1;
+            case 1 -> P256;
+            default -> null;
+        };
+    }
+
+    /**
+     * Leaf-to-scalar rule: d = leaf mod n. Returns null if d is zero.
+     * n must be the curve's group order, NOT the field prime p.
+     * See key-derivation.md, "The leaf rule".
+     */
+    static BigInteger leafToScalar(byte[] leaf, BigInteger n) {
+        BigInteger d = new BigInteger(1, leaf).mod(n);
+        return d.signum() == 0 ? null : d;
+    }
+
+    /**
+     * ECDSA public key from a 32-byte leaf.
+     *
+     * Returns the 65-byte SEC1 uncompressed point (04 || X || Y) plus the chain code.
+     * This differs from the Schnorr arm's 33-byte compressed key on purpose:
+     * KeyMaster builds the SPKI (named curve, uncompressed point) and PKCS#11
+     * CKA_EC_POINT from it, so nobody downstream has to decompress.
+     */
+    static VaultResult ecdsaPublicKey(byte[] leaf, int variant, byte[] chainCode) {
+        ECDomainParameters curve = ecdsaCurve(variant);
+        if (curve == null) {
+            return VaultResult.error(VaultResult.ERR_UNSUPPORTED_ALGORITHM);
+        }
+        BigInteger d = leafToScalar(leaf, curve.getN());
+        if (d == null) {
+            return VaultResult.error(VaultResult.ERR_CRYPTO_FAILURE);
+        }
+        byte[] uncompressed = curve.getG().multiply(d).normalize().getEncoded(false);
+        return VaultResult.ok(uncompressed, chainCode);
+    }
+
+    /**
+     * ECDSA signature over a 32-byte digest. The caller hashes; the vault does not.
+     * Nonce: RFC 6979 deterministic, HMAC-SHA-256. No low-S normalisation.
+     *
+     * @return 64-byte raw r || s, each 32 bytes big-endian (the PKCS#11 CKM_ECDSA
+     *         convention). DER conversion is the caller's job.
+     */
+    static VaultResult ecdsaSign(byte[] leaf, int variant, byte[] digest) {
+        ECDomainParameters curve = ecdsaCurve(variant);
+        if (curve == null) {
+            return VaultResult.error(VaultResult.ERR_UNSUPPORTED_ALGORITHM);
+        }
+        if (digest.length != 32) {
+            return VaultResult.error(VaultResult.ERR_INVALID_PAYLOAD);
+        }
+        BigInteger d = leafToScalar(leaf, curve.getN());
+        if (d == null) {
+            return VaultResult.error(VaultResult.ERR_CRYPTO_FAILURE);
+        }
+
+        try {
+            ECDSASigner signer = new ECDSASigner(new HMacDSAKCalculator(new SHA256Digest()));
+            signer.init(true, new ECPrivateKeyParameters(d, curve));
+            BigInteger[] rs = signer.generateSignature(digest);
+            // bigIntTo32Bytes drops BigInteger's extra sign byte (33-byte case)
+            // and left-pads values shorter than 32 bytes.
+            return VaultResult.ok(concat(bigIntTo32Bytes(rs[0]), bigIntTo32Bytes(rs[1])));
         } catch (Exception ex) {
             return VaultResult.error(VaultResult.ERR_CRYPTO_FAILURE);
         }
