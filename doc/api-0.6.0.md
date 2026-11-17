@@ -1,20 +1,24 @@
-# KeyVault API 0.5.0
+# KeyVault API 0.6.0
 
-Status: **proposal**, not implemented. Current release: 0.4.0.
+Status: **proposal**, not implemented. Current release: 0.4.0. Next release:
+0.5.0, which adds ECDSA on secp256k1 and P-256 (`AlgField.ALG_ECDSA`, mission
+37.1.1, `doc/ecdsa-p256.md`) without breaking the 0.4.0 API. The comparisons
+below are against 0.4.0. In 0.6.0, P-256 moves from the 0.5.0 rule (BIP-32
+leaf mod `n`) to its own SLIP-10 root, so P-256 keys change too.
 
-0.5.0 is a breaking release. Pre-1.0 semver allows breaking changes in a
+0.6.0 is a breaking release. Pre-1.0 semver allows breaking changes in a
 minor bump (`~/git/net.h3/doc/wow/branching-and-versioning.md`).
 
-0.5.0 is the target for the next KeyMaster release (not KeyMaster 1.0.0) and
+0.6.0 is the target for the next KeyMaster release (not KeyMaster 1.0.0) and
 the KeyVault API we build on from here, including hardware vaults.
 
 `RSA`, `ML_DSA` and `ML_KEM` are future: their `alg` values and options are
-reserved here so the API does not break again when they arrive, but 0.5.0
+reserved here so the API does not break again when they arrive, but 0.6.0
 does not implement them. Until then they return `ERR_UNSUPPORTED_ALGORITHM`.
 
 ## 1. Breaking changes
 
-| # | Change | 0.4.0 | 0.5.0 | Who must change |
+| # | Change | 0.4.0 | 0.6.0 | Who must change |
 |---|---|---|---|---|
 | B1 | Call signature | `execute(int function, byte[] payload, int... path)` | `execute(Alg alg, Function fn, int option, byte[] payload, int... path)` | Every caller |
 | B2 | Where the algorithm comes from | Read from `path[3]` (`AlgField`, bits 30–16) | The `alg` parameter. The vault no longer reads the algorithm from the path | Every caller, `AlgField` |
@@ -232,7 +236,7 @@ parent key.
 
 Unchanged from 0.4.0 (`VaultResult`):
 
-| Code | Name | 0.5.0 use |
+| Code | Name | 0.6.0 use |
 |---|---|---|
 | 0 | `OK` | |
 | 1 | `ERR_UNSUPPORTED_FUNCTION` | Unknown `fn`, or `fn` not defined for this `alg` |
@@ -248,11 +252,11 @@ The full per-protocol table, including the Cryptnox-based ckv01, is in
 
 Legend: ✅* works, but with a **new key** (SLIP-10 replaces DER-6, so the
 user must re-publish the public key). ✅ without a star keeps today's key or
-is new in 0.5.0. "prim." means the vault can do it, but KeyMaster has no
+is new in 0.6.0. "prim." means the vault can do it, but KeyMaster has no
 protocol code for it yet. "future" means the call is reserved but not
-implemented in 0.5.0 (RSA and post-quantum).
+implemented in 0.6.0 (RSA and post-quantum).
 
-| Protocol | Operation | `alg` | `fn` | `option` | 0.4.0 | 0.5.0 |
+| Protocol | Operation | `alg` | `fn` | `option` | 0.4.0 | 0.6.0 |
 |---|---|---|---|---|---|---|
 | Nostr | Sign event | `SECP256K1` | `SIGN` | 0 Schnorr | ✅ | ✅ |
 | Nostr | DMs | `SECP256K1` | `KEY_AGREEMENT` | 0 ECDH | ✅ | ✅ |

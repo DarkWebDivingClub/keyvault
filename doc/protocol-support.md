@@ -1,28 +1,28 @@
 # Protocol support
 
 Which protocol operations each KeyVault can serve, and through which call of
-the 0.5.0 API (`doc/api-0.5.0.md`).
+the 0.6.0 API (`doc/api-0.6.0.md`).
 
 | Vault | What it is |
 |---|---|
 | dkv00 v0.4.0 | The current software KeyVault (`Bip32KeyVault`), API 0.4.0 |
-| dkv00 v0.5.0 | The same software KeyVault on the proposed 0.5.0 API (SLIP-10, `alg` parameter) |
-| ckv01 | A Carbon KeyVault based on the Cryptnox v2.0 card, behind a 0.5.0 adapter |
+| dkv00 v0.6.0 | The same software KeyVault on the proposed 0.6.0 API (SLIP-10, `alg` parameter) |
+| ckv01 | A Carbon KeyVault based on the Cryptnox v2.0 card, behind a 0.6.0 adapter |
 
-Sources: dkv00 v0.4.0 is checked against the code. dkv00 v0.5.0 is the
+Sources: dkv00 v0.4.0 is checked against the code. dkv00 v0.6.0 is the
 proposal. ckv01 is from Cryptnox's public documentation
 (docs.cryptnox.com, v2.0) and has not been tested on a card.
 
 ## Legend
 
-- **alg, fn, option**: the 0.5.0 call, one function per row. A protocol that
+- **alg, fn, option**: the 0.6.0 call, one function per row. A protocol that
   needs two calls (for example a post-quantum hybrid) has two rows. `—` in
   alg means no `alg` value is defined yet.
 - **option**: the number and the scheme it selects. A plain `0` means the
   key type has only one scheme for that function.
 - **Status**: Best practice (use for new keys), Legacy (still in use, not for
   new keys), Future (post-quantum or new).
-- **future**: reserved in the 0.5.0 API but not implemented yet (RSA and
+- **future**: reserved in the 0.6.0 API but not implemented yet (RSA and
   post-quantum). Whether it runs in software (Bouncy Castle) or through
   EXPORT is decided when we get there.
 - **prim.**: the vault can do the operation, but KeyMaster has no protocol
@@ -58,7 +58,7 @@ code means a different function in each protocol.
 
 ## Table
 
-| Protocol | Operation | Algorithm | Status | alg | fn | option | dkv00 v0.4.0 | dkv00 v0.5.0 | ckv01 |
+| Protocol | Operation | Algorithm | Status | alg | fn | option | dkv00 v0.4.0 | dkv00 v0.6.0 | ckv01 |
 |---|---|---|---|---|---|---|---|---|---|
 | age | Decrypt file | X25519 | Best practice | ED25519 | KEY_AGREEMENT | 0 X25519 | ❌ | ✅ prim. | ❌ |
 | age | Decrypt file, PQ part | ML-KEM-768 | Future | ML_KEM | DECAPSULATE | 0 | ❌ | future | ❌ |
@@ -144,7 +144,7 @@ code means a different function in each protocol.
 
 ## Gaps
 
-**dkv00 v0.5.0**
+**dkv00 v0.6.0**
 
 - P-384 and Brainpool need new `alg` values (a new root each; P-384 has no
   SLIP-10 label).
@@ -167,6 +167,6 @@ code means a different function in each protocol.
 - No RSA, P-384, Brainpool, post-quantum, FIDO_SIGN or MuSig2, and no EXPORT
   as a fallback.
 
-With SLIP-10, every signing key ckv01 derives matches dkv00 v0.5.0 for the
+With SLIP-10, every signing key ckv01 derives matches dkv00 v0.6.0 for the
 same seed and path (to be confirmed with a test vector). A user can move
 between them without rotating signing keys.
