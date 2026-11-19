@@ -44,7 +44,7 @@ JDK 21 is required and must be set explicitly: Gradle cannot parse JDK
 Android dependency target:
 
 ```kotlin
-implementation("club.dwdc:club.dwdc.keyvault.nostr:0.5.0")
+implementation("club.dwdc:club.dwdc.keyvault.nostr:0.6.0")
 ```
 
 ## License
