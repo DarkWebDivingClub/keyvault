@@ -10,7 +10,15 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 
-public class Bip32KeyDerivator implements KeyDerivator {
+/**
+ * BIP-32 over secp256k1 with bitcoinj.
+ *
+ * <p>Since API 0.6.0 the vault derives every key with {@link Slip10KeyDerivator}.
+ * This class stays for {@link #mangle}, for xpub serialisation
+ * ({@link #deriveXpub}), and as the independent reference the SLIP-10
+ * secp256k1 keys are tested against.
+ */
+public class Bip32KeyDerivator {
 
     private final DeterministicKey master;
 
@@ -30,7 +38,7 @@ public class Bip32KeyDerivator implements KeyDerivator {
         this.master = HDKeyDerivation.createMasterPrivateKey(seed);
     }
 
-    @Override
+    /** The 32-byte BIP-32 leaf private key at the path. */
     public byte[] derive(int... path) {
         return deriveKey(path).getPrivKeyBytes();
     }
