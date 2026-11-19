@@ -7,18 +7,13 @@ import net.i2p.crypto.eddsa.spec.EdDSAParameterSpec;
 import net.i2p.crypto.eddsa.spec.EdDSAPrivateKeySpec;
 import org.bouncycastle.crypto.agreement.X25519Agreement;
 import org.bouncycastle.crypto.digests.SHA256Digest;
-import org.bouncycastle.crypto.ec.CustomNamedCurves;
-import org.bouncycastle.crypto.signers.ECDSASigner;
-import org.bouncycastle.crypto.signers.HMacDSAKCalculator;
 import org.bouncycastle.crypto.params.ECDomainParameters;
 import org.bouncycastle.crypto.params.ECPrivateKeyParameters;
-import org.bouncycastle.crypto.params.ECPublicKeyParameters;
 import org.bouncycastle.crypto.params.X25519PrivateKeyParameters;
 import org.bouncycastle.crypto.params.X25519PublicKeyParameters;
+import org.bouncycastle.crypto.signers.ECDSASigner;
+import org.bouncycastle.crypto.signers.HMacDSAKCalculator;
 import org.bouncycastle.math.ec.ECPoint;
-import org.bouncycastle.math.ec.custom.sec.SecP256K1Curve;
-import org.bitcoinj.crypto.DeterministicKey;
-import org.bitcoinj.crypto.ECKey;
 
 import java.math.BigInteger;
 import java.security.MessageDigest;
@@ -26,26 +21,35 @@ import java.security.NoSuchAlgorithmException;
 import java.security.Signature;
 import java.util.Arrays;
 
+/**
+ * The software KeyVault, API 0.6.0 ({@code doc/api-0.6.0.md}).
+ *
+ * <p>Keys are derived with SLIP-10 ({@link Slip10KeyDerivator}) under the root of
+ * the {@code alg} parameter; the name is kept from the BIP-32 era for callers.
+ *
+ * <p>Checks run in this order, so every refusal has one well-defined error:
+ * <ol>
+ *   <li>path shorter than 5 levels → {@code ERR_INVALID_PATH}</li>
+ *   <li>reserved {@code alg} → {@code ERR_UNSUPPORTED_ALGORITHM}</li>
+ *   <li>{@code EXPORT} → {@code ERR_INVALID_PATH} on a non-hardened path,
+ *       otherwise {@code ERR_UNSUPPORTED_ALGORITHM} (B5)</li>
+ *   <li>{@code fn} other than GET_PUBLIC_KEY, SIGN, KEY_AGREEMENT
+ *       ({@code DECAPSULATE}, 16+, unknown) → {@code ERR_UNSUPPORTED_FUNCTION}</li>
+ *   <li>unknown or reserved {@code option} → {@code ERR_UNSUPPORTED_ALGORITHM}</li>
+ *   <li>binding check ({@link Binding}) → {@code ERR_INVALID_PATH}</li>
+ *   <li>non-hardened level under Ed25519 → {@code ERR_INVALID_PATH}</li>
+ *   <li>payload length → {@code ERR_INVALID_PAYLOAD}</li>
+ *   <li>the operation; arithmetic failure → {@code ERR_CRYPTO_FAILURE}</li>
+ * </ol>
+ */
 public class Bip32KeyVault implements KeyVault {
+
+    private static final int H = 0x80000000;
 
     private static final EdDSAParameterSpec ED25519_SPEC =
             EdDSANamedCurveTable.getByName("Ed25519");
 
-    private static final ECDomainParameters SECP256K1;
-    static {
-        var params = CustomNamedCurves.getByName("secp256k1");
-        SECP256K1 = new ECDomainParameters(
-                params.getCurve(), params.getG(), params.getN(), params.getH());
-    }
-
-    private static final ECDomainParameters P256;
-    static {
-        var params = CustomNamedCurves.getByName("secp256r1");
-        P256 = new ECDomainParameters(
-                params.getCurve(), params.getG(), params.getN(), params.getH());
-    }
-
-    private final Bip32KeyDerivator derivator;
+    private final Slip10KeyDerivator derivator;
 
     /** Create from BIP-39 mnemonic (no passphrase). */
     public Bip32KeyVault(String mnemonic) {
@@ -54,73 +58,121 @@ public class Bip32KeyVault implements KeyVault {
 
     /** Create from BIP-39 mnemonic with optional passphrase. */
     public Bip32KeyVault(String mnemonic, String passphrase) {
-        this.derivator = new Bip32KeyDerivator(mnemonic, passphrase);
+        this.derivator = Slip10KeyDerivator.fromMnemonic(mnemonic, passphrase);
+    }
+
+    /** Create from a binary seed (16–64 bytes). */
+    public Bip32KeyVault(byte[] seed) {
+        this.derivator = new Slip10KeyDerivator(seed);
     }
 
     @Override
-    public VaultResult execute(int function, byte[] payload, int... path) {
-        if (path.length < 5) {
+    public VaultResult execute(Alg alg, int fn, int option, byte[] payload, int... path) {
+        if (path == null || path.length < 5) {
             return VaultResult.error(VaultResult.ERR_INVALID_PATH);
         }
-
-        return switch (function) {
-            case FN_EXPORT_SEED -> VaultResult.ok(derivator.derive(path));
-            case FN_GET_PUBLIC_KEY -> getPublicKey(path);
-            case FN_SIGN -> sign(path, payload);
-            case FN_KEY_AGREEMENT -> ecdh(path, payload);
-            default -> VaultResult.error(VaultResult.ERR_UNSUPPORTED_FUNCTION);
-        };
-    }
-
-    /** Extract the algorithm ID from path level 4 (index 3). */
-    private static int extractAlg(int[] path) {
-        int algIndex = path[3] & 0x7FFFFFFF;
-        return (algIndex >> 16) & 0x7FFF;
-    }
-
-    /** Extract the variant from path level 4 (index 3). For ECDSA the variant selects the curve. */
-    private static int extractVariant(int[] path) {
-        int algIndex = path[3] & 0x7FFFFFFF;
-        return (algIndex >> 8) & 0xFF;
-    }
-
-    // ── FN_GET_PUBLIC_KEY ────────────────────────────────────────────────
-
-    private VaultResult getPublicKey(int[] path) {
-        int alg = extractAlg(path);
-        DeterministicKey key = derivator.deriveKey(path);
-        byte[] seed = key.getPrivKeyBytes();
-        byte[] chainCode = key.getChainCode();
-
-        return switch (alg) {
-            case AlgField.ALG_ED25519 -> {
-                EdDSAPrivateKeySpec privSpec = new EdDSAPrivateKeySpec(seed, ED25519_SPEC);
-                yield VaultResult.ok(privSpec.getA().toByteArray(), chainCode);
-            }
-            case AlgField.ALG_SCHNORR -> {
-                byte[] compressed = ECKey.fromPrivate(seed, true).getPubKey();
-                yield VaultResult.ok(compressed, chainCode);
-            }
-            case AlgField.ALG_ECDSA -> ecdsaPublicKey(seed, extractVariant(path), chainCode);
-            default -> VaultResult.error(VaultResult.ERR_UNSUPPORTED_ALGORITHM);
-        };
-    }
-
-    // ── FN_SIGN ──────────────────────────────────────────────────────────
-
-    private VaultResult sign(int[] path, byte[] payload) {
-        if (payload == null || payload.length == 0) {
+        if (alg == null || !alg.isSupported()) {
+            return VaultResult.error(VaultResult.ERR_UNSUPPORTED_ALGORITHM);
+        }
+        if (fn == FN_EXPORT) {
+            return VaultResult.error(allHardened(path)
+                    ? VaultResult.ERR_UNSUPPORTED_ALGORITHM
+                    : VaultResult.ERR_INVALID_PATH);
+        }
+        if (fn != FN_GET_PUBLIC_KEY && fn != FN_SIGN && fn != FN_KEY_AGREEMENT) {
+            return VaultResult.error(VaultResult.ERR_UNSUPPORTED_FUNCTION);
+        }
+        if (!implemented(alg, fn, option)) {
+            return VaultResult.error(VaultResult.ERR_UNSUPPORTED_ALGORITHM);
+        }
+        if (Binding.check(alg, fn, option, path) != VaultResult.OK) {
+            return VaultResult.error(VaultResult.ERR_INVALID_PATH);
+        }
+        if (alg == Alg.ED25519 && !allHardened(path)) {
+            return VaultResult.error(VaultResult.ERR_INVALID_PATH);
+        }
+        if (!payloadLengthOk(alg, fn, payload)) {
             return VaultResult.error(VaultResult.ERR_INVALID_PAYLOAD);
         }
 
-        int alg = extractAlg(path);
-        byte[] seed = derivator.derive(path);
+        Slip10KeyDerivator.Node node = derivator.deriveNode(alg, path);
+        try {
+            return switch (fn) {
+                case FN_GET_PUBLIC_KEY -> VaultResult.ok(publicKey(alg, node.key()), node.chainCode());
+                case FN_SIGN -> sign(alg, option, node.key(), payload);
+                default -> keyAgreement(alg, node.key(), payload);
+            };
+        } finally {
+            Arrays.fill(node.key(), (byte) 0);
+        }
+    }
 
+    // ── Scheme table ─────────────────────────────────────────────────────
+
+    /** Whether {@code (alg, fn, option)} is implemented. Reserved options are not. */
+    static boolean implemented(Alg alg, int fn, int option) {
         return switch (alg) {
-            case AlgField.ALG_SCHNORR -> schnorrSign(seed, payload);
-            case AlgField.ALG_ED25519 -> ed25519Sign(seed, payload);
-            case AlgField.ALG_ECDSA -> ecdsaSign(seed, extractVariant(path), payload);
-            default -> VaultResult.error(VaultResult.ERR_UNSUPPORTED_ALGORITHM);
+            case SECP256K1 -> fn == FN_KEY_AGREEMENT
+                    ? option == OPT_DEFAULT
+                    : option == OPT_SECP256K1_SCHNORR || option == OPT_SECP256K1_ECDSA;
+            case ED25519, P256 -> option == OPT_DEFAULT;
+            default -> false;
+        };
+    }
+
+    /** Exact payload lengths per {@code (alg, fn)} (section 5). */
+    static boolean payloadLengthOk(Alg alg, int fn, byte[] payload) {
+        int len = payload == null ? -1 : payload.length;
+        return switch (fn) {
+            case FN_GET_PUBLIC_KEY -> len <= 0;
+            case FN_SIGN -> alg == Alg.ED25519 ? len >= 0 : len == 32;
+            case FN_KEY_AGREEMENT -> switch (alg) {
+                case SECP256K1 -> len == 32 || len == 33;
+                case ED25519 -> len == 32;
+                case P256 -> len == 33 || len == 65;
+                default -> false;
+            };
+            default -> false;
+        };
+    }
+
+    private static boolean allHardened(int[] path) {
+        for (int index : path) {
+            if ((index & H) == 0) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // ── GET_PUBLIC_KEY ───────────────────────────────────────────────────
+
+    /**
+     * SECP256K1: 33-byte compressed point. ED25519: 32-byte RFC 8032 public key.
+     * P256: 65-byte SEC1 uncompressed point (KeyMaster builds the SPKI and the
+     * PKCS#11 {@code CKA_EC_POINT} from it).
+     */
+    private static byte[] publicKey(Alg alg, byte[] key) {
+        return switch (alg) {
+            case ED25519 -> new EdDSAPrivateKeySpec(key, ED25519_SPEC).getA().toByteArray();
+            case SECP256K1 -> point(alg, key).getEncoded(true);
+            default -> point(alg, key).getEncoded(false);
+        };
+    }
+
+    private static ECPoint point(Alg alg, byte[] key) {
+        return Slip10KeyDerivator.domain(alg).getG().multiply(new BigInteger(1, key)).normalize();
+    }
+
+    // ── SIGN ─────────────────────────────────────────────────────────────
+
+    private static VaultResult sign(Alg alg, int option, byte[] key, byte[] payload) {
+        return switch (alg) {
+            case ED25519 -> ed25519Sign(key, payload);
+            case SECP256K1 -> option == OPT_SECP256K1_ECDSA
+                    ? ecdsaSign(Slip10KeyDerivator.domain(alg), key, payload, true)
+                    : schnorrSign(key, payload);
+            default -> ecdsaSign(Slip10KeyDerivator.domain(alg), key, payload, false);
         };
     }
 
@@ -132,14 +184,11 @@ public class Bip32KeyVault implements KeyVault {
      * @param message 32-byte message hash
      * @return 64-byte signature (R.x || s)
      */
-    private VaultResult schnorrSign(byte[] seed, byte[] message) {
-        if (message.length != 32) {
-            return VaultResult.error(VaultResult.ERR_INVALID_PAYLOAD);
-        }
-
+    private static VaultResult schnorrSign(byte[] seed, byte[] message) {
         try {
-            BigInteger n = SECP256K1.getN();
-            ECPoint G = SECP256K1.getG();
+            ECDomainParameters curve = Slip10KeyDerivator.domain(Alg.SECP256K1);
+            BigInteger n = curve.getN();
+            ECPoint G = curve.getG();
 
             BigInteger d = new BigInteger(1, seed);
             ECPoint P = G.multiply(d).normalize();
@@ -181,11 +230,11 @@ public class Bip32KeyVault implements KeyVault {
     /**
      * Ed25519 signature using net.i2p.crypto.eddsa.
      *
-     * @param seed    32-byte Ed25519 seed
+     * @param seed    32-byte Ed25519 seed (the SLIP-10 ed25519 key)
      * @param message raw message bytes (Ed25519 hashes internally)
      * @return 64-byte Ed25519 signature
      */
-    private VaultResult ed25519Sign(byte[] seed, byte[] message) {
+    private static VaultResult ed25519Sign(byte[] seed, byte[] message) {
         try {
             EdDSAPrivateKeySpec privSpec = new EdDSAPrivateKeySpec(seed, ED25519_SPEC);
             EdDSAPrivateKey privKey = new EdDSAPrivateKey(privSpec);
@@ -198,129 +247,94 @@ public class Bip32KeyVault implements KeyVault {
         }
     }
 
-    // ── ECDSA (alg 3) ────────────────────────────────────────────────────
-
     /**
-     * The ECDSA curve for a variant, or null if the vault does not support it.
-     * Variant 4 (Brainpool P256r1) is valid for direct-key derivation but not
-     * implemented yet. Variants 2, 3, 5 and 6 have orders longer than 32 bytes,
-     * so they cannot use a 32-byte leaf at all.
-     */
-    static ECDomainParameters ecdsaCurve(int variant) {
-        return switch (variant) {
-            case 0 -> SECP256K1;
-            case 1 -> P256;
-            default -> null;
-        };
-    }
-
-    /**
-     * Leaf-to-scalar rule: d = leaf mod n. Returns null if d is zero.
-     * n must be the curve's group order, NOT the field prime p.
-     * See key-derivation.md, "The leaf rule".
-     */
-    static BigInteger leafToScalar(byte[] leaf, BigInteger n) {
-        BigInteger d = new BigInteger(1, leaf).mod(n);
-        return d.signum() == 0 ? null : d;
-    }
-
-    /**
-     * ECDSA public key from a 32-byte leaf.
+     * ECDSA over a 32-byte digest; the caller hashes. RFC 6979 deterministic nonce
+     * (HMAC-SHA-256), then low-S: {@code s > n/2 → n − s}.
      *
-     * Returns the 65-byte SEC1 uncompressed point (04 || X || Y) plus the chain code.
-     * This differs from the Schnorr arm's 33-byte compressed key on purpose:
-     * KeyMaster builds the SPKI (named curve, uncompressed point) and PKCS#11
-     * CKA_EC_POINT from it, so nobody downstream has to decompress.
+     * @param withRecoveryId true for secp256k1 option 2: append {@code v}, the
+     *                       recovery id (0 or 1) of the normalised signature
+     * @return {@code r ‖ s} (64 bytes), or {@code r ‖ s ‖ v} (65 bytes)
      */
-    static VaultResult ecdsaPublicKey(byte[] leaf, int variant, byte[] chainCode) {
-        ECDomainParameters curve = ecdsaCurve(variant);
-        if (curve == null) {
-            return VaultResult.error(VaultResult.ERR_UNSUPPORTED_ALGORITHM);
-        }
-        BigInteger d = leafToScalar(leaf, curve.getN());
-        if (d == null) {
-            return VaultResult.error(VaultResult.ERR_CRYPTO_FAILURE);
-        }
-        byte[] uncompressed = curve.getG().multiply(d).normalize().getEncoded(false);
-        return VaultResult.ok(uncompressed, chainCode);
-    }
-
-    /**
-     * ECDSA signature over a 32-byte digest. The caller hashes; the vault does not.
-     * Nonce: RFC 6979 deterministic, HMAC-SHA-256. No low-S normalisation.
-     *
-     * @return 64-byte raw r || s, each 32 bytes big-endian (the PKCS#11 CKM_ECDSA
-     *         convention). DER conversion is the caller's job.
-     */
-    static VaultResult ecdsaSign(byte[] leaf, int variant, byte[] digest) {
-        ECDomainParameters curve = ecdsaCurve(variant);
-        if (curve == null) {
-            return VaultResult.error(VaultResult.ERR_UNSUPPORTED_ALGORITHM);
-        }
-        if (digest.length != 32) {
-            return VaultResult.error(VaultResult.ERR_INVALID_PAYLOAD);
-        }
-        BigInteger d = leafToScalar(leaf, curve.getN());
-        if (d == null) {
-            return VaultResult.error(VaultResult.ERR_CRYPTO_FAILURE);
-        }
-
+    static VaultResult ecdsaSign(ECDomainParameters curve, byte[] key, byte[] digest, boolean withRecoveryId) {
         try {
+            BigInteger d = new BigInteger(1, key);
             ECDSASigner signer = new ECDSASigner(new HMacDSAKCalculator(new SHA256Digest()));
             signer.init(true, new ECPrivateKeyParameters(d, curve));
             BigInteger[] rs = signer.generateSignature(digest);
-            // bigIntTo32Bytes drops BigInteger's extra sign byte (33-byte case)
-            // and left-pads values shorter than 32 bytes.
-            return VaultResult.ok(concat(bigIntTo32Bytes(rs[0]), bigIntTo32Bytes(rs[1])));
+            BigInteger r = rs[0];
+            BigInteger s = lowS(rs[1], curve.getN());
+            byte[] rsBytes = concat(bigIntTo32Bytes(r), bigIntTo32Bytes(s));
+            if (!withRecoveryId) {
+                return VaultResult.ok(rsBytes);
+            }
+            ECPoint q = curve.getG().multiply(d).normalize();
+            for (int v = 0; v <= 1; v++) {
+                ECPoint recovered = recover(curve, r, s, v, digest);
+                if (recovered != null && recovered.equals(q)) {
+                    return VaultResult.ok(concat(rsBytes, new byte[]{(byte) v}));
+                }
+            }
+            // r ≥ p − n would need recovery ids 2 and 3, which this layout does not carry.
+            return VaultResult.error(VaultResult.ERR_CRYPTO_FAILURE);
         } catch (Exception ex) {
             return VaultResult.error(VaultResult.ERR_CRYPTO_FAILURE);
         }
     }
 
-    // ── FN_KEY_AGREEMENT ──────────────────────────────────────────────────────────
+    /** Low-S normalisation (BIP-62 / SEC1 malleability rule). */
+    static BigInteger lowS(BigInteger s, BigInteger n) {
+        return s.compareTo(n.shiftRight(1)) > 0 ? n.subtract(s) : s;
+    }
 
-    private VaultResult ecdh(int[] path, byte[] payload) {
-        if (payload == null || payload.length == 0) {
-            return VaultResult.error(VaultResult.ERR_INVALID_PAYLOAD);
+    /**
+     * ECDSA public key recovery (SEC1 4.1.6) for recovery id 0 or 1:
+     * {@code R = (r, y with parity v)}, {@code Q = r⁻¹ (sR − eG)}.
+     *
+     * @return the recovered point, or {@code null} if {@code r} is not an x-coordinate
+     */
+    static ECPoint recover(ECDomainParameters curve, BigInteger r, BigInteger s, int v, byte[] digest) {
+        BigInteger n = curve.getN();
+        byte[] compressed = new byte[33];
+        compressed[0] = (byte) (v == 0 ? 0x02 : 0x03);
+        System.arraycopy(bigIntTo32Bytes(r), 0, compressed, 1, 32);
+        ECPoint bigR;
+        try {
+            bigR = curve.getCurve().decodePoint(compressed);
+        } catch (IllegalArgumentException notOnCurve) {
+            return null;
         }
+        BigInteger e = new BigInteger(1, digest);
+        BigInteger rInv = r.modInverse(n);
+        ECPoint q = bigR.multiply(s).subtract(curve.getG().multiply(e)).multiply(rInv).normalize();
+        return q.isInfinity() ? null : q;
+    }
 
-        int alg = extractAlg(path);
-        byte[] seed = derivator.derive(path);
+    // ── KEY_AGREEMENT ────────────────────────────────────────────────────
 
+    private static VaultResult keyAgreement(Alg alg, byte[] key, byte[] peer) {
         return switch (alg) {
-            case AlgField.ALG_SCHNORR -> secp256k1Ecdh(seed, payload);
-            case AlgField.ALG_ED25519 -> x25519Ecdh(seed, payload);
-            default -> VaultResult.error(VaultResult.ERR_UNSUPPORTED_ALGORITHM);
+            case ED25519 -> x25519(key, peer);
+            case SECP256K1 -> ecdhX(Slip10KeyDerivator.domain(alg), key,
+                    peer.length == 32 ? concat(new byte[]{0x02}, peer) : peer);
+            default -> ecdhX(Slip10KeyDerivator.domain(alg), key, peer);
         };
     }
 
     /**
-     * secp256k1 ECDH: shared secret = x-coordinate of (privKey * theirPubKey).
-     *
-     * @param seed    32-byte private key
-     * @param payload 32-byte x-only pubkey (even Y assumed) or 33-byte compressed pubkey
-     * @return 32-byte shared secret (x-coordinate)
+     * ECDH, shared secret = x-coordinate of {@code d · peer}. The peer point is
+     * decoded and validated on the curve (SEC1 compressed or uncompressed);
+     * an invalid point or an infinite result is {@code ERR_CRYPTO_FAILURE}.
      */
-    private VaultResult secp256k1Ecdh(byte[] seed, byte[] payload) {
-        if (payload.length != 32 && payload.length != 33) {
-            return VaultResult.error(VaultResult.ERR_INVALID_PAYLOAD);
-        }
-
+    static VaultResult ecdhX(ECDomainParameters curve, byte[] key, byte[] peerEncoded) {
         try {
-            // If 32-byte x-only, prepend 0x02 (even Y)
-            byte[] compressed;
-            if (payload.length == 32) {
-                compressed = new byte[33];
-                compressed[0] = 0x02;
-                System.arraycopy(payload, 0, compressed, 1, 32);
-            } else {
-                compressed = payload;
+            ECPoint peer = curve.getCurve().decodePoint(peerEncoded);
+            if (peer.isInfinity() || !peer.isValid()) {
+                return VaultResult.error(VaultResult.ERR_CRYPTO_FAILURE);
             }
-
-            ECPoint theirPoint = SECP256K1.getCurve().decodePoint(compressed).normalize();
-            BigInteger privKey = new BigInteger(1, seed);
-            ECPoint shared = theirPoint.multiply(privKey).normalize();
-
+            ECPoint shared = peer.multiply(new BigInteger(1, key)).normalize();
+            if (shared.isInfinity()) {
+                return VaultResult.error(VaultResult.ERR_CRYPTO_FAILURE);
+            }
             return VaultResult.ok(bigIntTo32Bytes(shared.getXCoord().toBigInteger()));
         } catch (Exception ex) {
             return VaultResult.error(VaultResult.ERR_CRYPTO_FAILURE);
@@ -328,35 +342,22 @@ public class Bip32KeyVault implements KeyVault {
     }
 
     /**
-     * X25519 key agreement: derive X25519 private key from Ed25519 seed (clamped),
-     * then compute shared secret.
-     *
-     * @param seed    32-byte Ed25519 seed
-     * @param payload 32-byte X25519 public key
-     * @return 32-byte shared secret
+     * X25519 key agreement: derive the X25519 private key from the Ed25519 seed
+     * (SHA-512, first 32 bytes, clamped), then compute the shared secret.
      */
-    private VaultResult x25519Ecdh(byte[] seed, byte[] payload) {
-        if (payload.length != 32) {
-            return VaultResult.error(VaultResult.ERR_INVALID_PAYLOAD);
-        }
-
+    private static VaultResult x25519(byte[] seed, byte[] peer) {
         try {
-            // Derive X25519 private key from Ed25519 seed:
-            // hash the seed with SHA-512, take first 32 bytes, then clamp
             byte[] hash = MessageDigest.getInstance("SHA-512").digest(seed);
             byte[] x25519Seed = Arrays.copyOf(hash, 32);
-            x25519Seed[0]  &= (byte) 0xF8;  // clear bottom 3 bits
-            x25519Seed[31] &= (byte) 0x7F;  // clear top bit
-            x25519Seed[31] |= (byte) 0x40;  // set second-to-top bit
-
-            X25519PrivateKeyParameters privKey = new X25519PrivateKeyParameters(x25519Seed, 0);
-            X25519PublicKeyParameters theirPubKey = new X25519PublicKeyParameters(payload, 0);
+            x25519Seed[0] &= (byte) 0xF8;  // clear bottom 3 bits
+            x25519Seed[31] &= (byte) 0x7F; // clear top bit
+            x25519Seed[31] |= (byte) 0x40; // set second-to-top bit
 
             X25519Agreement agreement = new X25519Agreement();
-            agreement.init(privKey);
+            agreement.init(new X25519PrivateKeyParameters(x25519Seed, 0));
             byte[] secret = new byte[agreement.getAgreementSize()];
-            agreement.calculateAgreement(theirPubKey, secret, 0);
-
+            agreement.calculateAgreement(new X25519PublicKeyParameters(peer, 0), secret, 0);
+            Arrays.fill(x25519Seed, (byte) 0);
             return VaultResult.ok(secret);
         } catch (Exception ex) {
             return VaultResult.error(VaultResult.ERR_CRYPTO_FAILURE);
@@ -381,12 +382,7 @@ public class Bip32KeyVault implements KeyVault {
     }
 
     static byte[] bigIntTo32Bytes(BigInteger value) {
-        byte[] bytes = value.toByteArray();
-        if (bytes.length == 32) return bytes;
-        if (bytes.length > 32) return Arrays.copyOfRange(bytes, bytes.length - 32, bytes.length);
-        byte[] padded = new byte[32];
-        System.arraycopy(bytes, 0, padded, 32 - bytes.length, bytes.length);
-        return padded;
+        return Slip10KeyDerivator.to32Bytes(value);
     }
 
     private static byte[] xorBytes(byte[] a, byte[] b) {

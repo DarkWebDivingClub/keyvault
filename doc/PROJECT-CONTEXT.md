@@ -15,10 +15,11 @@ It records project decisions and repository state, not secrets.
   - Android KeyMaster application.
   - GitHub: `DarkWebDivingClub/club.dwdc.keymaster.android`
   - Branch: `master`
-- `/home/rene/git/club.dwdc.keyexporter`
-  - Java OpenPGP key export tool.
-  - Version: `0.1.0`
-  - GitHub: `DarkWebDivingClub/club.dwdc.keyexporter`
+- `/home/rene/git/keyexporter` — **retired** (keymaster-wks mission 48.4).
+  - Java OpenPGP key export tool, last version `0.1.0`, pinned to keyvault
+    0.1.0. KeyVault 0.6.0 refuses private-key export (B5), so it is not
+    moved to the 0.6.0 API.
+  - GitHub: `DarkWebDivingClub/keyexporter` (archived)
   - Branch: `main`
 
 The namespace is `club.dwdc`, not `org.dwdc`.

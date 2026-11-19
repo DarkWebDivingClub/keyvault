@@ -1,6 +1,8 @@
 package club.dwdc.keyvault.nostr;
 
-import club.dwdc.keyvault.core.AlgField;
+import club.dwdc.keyvault.core.Alg;
+import club.dwdc.keyvault.core.Slip10KeyDerivator;
+import club.dwdc.keyvault.core.UseField;
 import club.dwdc.keyvault.core.Bip32KeyDerivator;
 import club.dwdc.keyvault.core.Bip32KeyVault;
 import club.dwdc.keyvault.core.ConfigField;
@@ -45,8 +47,7 @@ class KeyVaultIdentityTest {
     private static final int H = 0x80000000;
     private static final int PURPOSE = 44 | H;
     private static final int NOSTR_COIN = Protocol.NOSTR.coinType() | H;
-    private static final int ALG_SCHNORR =
-            new AlgField(AlgField.ALG_SCHNORR, 0, 0).toIndex() | H;
+    private static final int ALG_SCHNORR = new UseField(0, 0).toIndex() | H;
     private static final int DEFAULT_CONFIG =
             new ConfigField(ConfigField.CSPRNG_NONE, 0).toIndex() | H;
 
@@ -63,7 +64,7 @@ class KeyVaultIdentityTest {
         int identityIndex = Bip32KeyDerivator.mangle("alice@nostr.com") | H;
         int[] path = {PURPOSE, NOSTR_COIN, identityIndex, ALG_SCHNORR, DEFAULT_CONFIG};
 
-        VaultResult expected = vault.execute(KeyVault.FN_GET_PUBLIC_KEY, null, path);
+        VaultResult expected = vault.execute(Alg.SECP256K1, KeyVault.FN_GET_PUBLIC_KEY, 0, null, path);
         assertTrue(expected.isOk());
         // Vault returns 33-byte compressed; identity strips to 32-byte x-only
         assertEquals(33, expected.data().length);
@@ -129,10 +130,12 @@ class KeyVaultIdentityTest {
         // Extract private key seed from vault and create a nostr-java Identity
         int aliceIndex = Bip32KeyDerivator.mangle("alice@nostr.com") | H;
         int[] alicePath = {PURPOSE, NOSTR_COIN, aliceIndex, ALG_SCHNORR, DEFAULT_CONFIG};
-        VaultResult seedResult = vault.execute(KeyVault.FN_EXPORT_SEED, null, alicePath);
-        assertTrue(seedResult.isOk());
+        // EXPORT is refused in 0.6.0 (B5); derive the key directly for the reference identity.
+        byte[] aliceKey = Slip10KeyDerivator.fromMnemonic(MNEMONIC, "").derive(Alg.SECP256K1, alicePath);
+        assertEquals(VaultResult.ERR_UNSUPPORTED_ALGORITHM,
+                vault.execute(Alg.SECP256K1, KeyVault.FN_EXPORT, 0, null, alicePath).status());
 
-        Identity plainIdentity = Identity.create(new PrivateKey(seedResult.data()));
+        Identity plainIdentity = Identity.create(new PrivateKey(aliceKey));
 
         // Both should produce the same conversation key for Bob's public key
         byte[] vaultSecret = identityAlice.computeSharedSecret(identityBob.getPublicKey());
