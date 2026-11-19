@@ -6,11 +6,13 @@ the 0.6.0 API (`doc/api-0.6.0.md`).
 | Vault | What it is |
 |---|---|
 | dkv00 v0.4.0 | The current software KeyVault (`Bip32KeyVault`), API 0.4.0 |
-| dkv00 v0.6.0 | The same software KeyVault on the proposed 0.6.0 API (SLIP-10, `alg` parameter) |
+| dkv00 v0.6.0 | The same software KeyVault on the 0.6.0 API (SLIP-10, `alg` parameter), keyvault 0.6.0 |
 | ckv01 | A Carbon KeyVault based on the Cryptnox v2.0 card, behind a 0.6.0 adapter |
 
-Sources: dkv00 v0.4.0 is checked against the code. dkv00 v0.6.0 is the
-proposal. ckv01 is from Cryptnox's public documentation
+Sources: dkv00 v0.4.0 and dkv00 v0.6.0 are checked against the code
+(0.6.0: missions 48.1 and 48.2). "reserved" in the dkv00 v0.6.0 column means
+the call is numbered and laid out but returns an error until a later,
+non-breaking release. ckv01 is from Cryptnox's public documentation
 (docs.cryptnox.com, v2.0) and has not been tested on a card.
 
 ## Legend
@@ -38,8 +40,8 @@ vault wherever the key type is supported.
 
 | fn | Code | alg | option |
 |---|---|---|---|
-| SIGN | 2 | SECP256K1 | 0 Schnorr, 1 Taproot, 2 ECDSA |
-| SIGN | 2 | ED25519 | 0 Ed25519, 1 Tor blinded |
+| SIGN | 2 | SECP256K1 | 0 Schnorr, 1 Taproot (reserved), 2 ECDSA |
+| SIGN | 2 | ED25519 | 0 Ed25519, 1 Tor blinded (reserved) |
 | SIGN | 2 | P256 | 0 ECDSA |
 | SIGN | 2 | RSA | 0 PKCS#1 v1.5, 1 PSS |
 | SIGN | 2 | ML_DSA | 0 ML-DSA |
@@ -48,9 +50,8 @@ vault wherever the key type is supported.
 | KEY_AGREEMENT | 3 | P256 | 0 ECDH |
 | DECAPSULATE | 4 | RSA | 0 PKCS#1 v1.5, 1 OAEP |
 | DECAPSULATE | 4 | ML_KEM | 0 ML-KEM |
-| MUSIG2_NONCE | 16, Bitcoin | SECP256K1 | 0 |
-| MUSIG2_SIGN | 17, Bitcoin | SECP256K1 | 0 |
-| FIDO_SIGN | 16, FIDO | P256, ED25519 | 0 |
+| MUSIG2_NONCE | 16, Bitcoin | SECP256K1 | 0 (reserved) |
+| MUSIG2_SIGN | 17, Bitcoin | SECP256K1 | 0 (reserved) |
 
 Codes 0–15 are generic. Codes 16 and up are defined per protocol: the vault
 reads the protocol from the path prefix (purpose and level 2), so the same
@@ -64,11 +65,9 @@ code means a different function in each protocol.
 | age | Decrypt file, PQ part | ML-KEM-768 | Future | ML_KEM | DECAPSULATE | 0 | ❌ | future | ❌ |
 | age | Decrypt file, classic part | X25519 | Future | ED25519 | KEY_AGREEMENT | 0 X25519 | ❌ | ✅ prim. | ❌ |
 | Bitcoin | SegWit, legacy spend | secp256k1 ECDSA | Legacy (most common) | SECP256K1 | SIGN | 2 ECDSA | ❌ | ✅ | ✅ |
-| Bitcoin | Taproot spend | secp256k1 Schnorr, tweaked | Best practice | SECP256K1 | SIGN | 1 Taproot | ❌ | ✅ | ❌ unless a tweak is added |
+| Bitcoin | Taproot spend | secp256k1 Schnorr, tweaked | Best practice | SECP256K1 | SIGN | 1 Taproot | ❌ | reserved | ❌ unless a tweak is added |
 | Bitcoin | BIP-360 (draft) | ML-DSA | Future | ML_DSA | SIGN | 0 | ❌ | future | ❌ |
 | Ethereum | Transactions | secp256k1 ECDSA | Best practice | SECP256K1 | SIGN | 2 ECDSA | ❌ | ✅ | ✅ |
-| FIDO2, passkeys | Web login | P-256 ECDSA with counter | Best practice | P256 | FIDO_SIGN | 0 | ❌ | ✅ | ⚠️ own use only |
-| FIDO2, passkeys | Web login | Ed25519 with counter | Best practice (less support) | ED25519 | FIDO_SIGN | 0 | ❌ | ✅ | ❌ |
 | GPG | Sign | Ed25519 | Best practice | ED25519 | SIGN | 0 Ed25519 | ✅ | ✅* | ✅ |
 | GPG | Sign | RSA | Legacy | RSA | SIGN | 0 PKCS#1 v1.5 | ❌ | future | ❌ |
 | GPG | Sign, PQ part | ML-DSA-65 | Future | ML_DSA | SIGN | 0 | ❌ | future | ❌ |
@@ -84,8 +83,8 @@ code means a different function in each protocol.
 | IPsec (IKEv2) | Authenticate | RSA-PSS | Legacy | RSA | SIGN | 1 PSS | ❌ | future | ❌ |
 | IPsec (IKEv2) | Authenticate | ML-DSA | Future (draft) | ML_DSA | SIGN | 0 | ❌ | future | ❌ |
 | Lightning | Channel signatures | secp256k1 ECDSA | Best practice | SECP256K1 | SIGN | 2 ECDSA | ❌ | ✅ | ✅ |
-| Lightning | Taproot channels, round 1 | MuSig2 nonce | Future | SECP256K1 | MUSIG2_NONCE | 0 | ❌ | ✅ | ❌ |
-| Lightning | Taproot channels, round 2 | MuSig2 partial signature | Future | SECP256K1 | MUSIG2_SIGN | 0 | ❌ | ✅ | ❌ |
+| Lightning | Taproot channels, round 1 | MuSig2 nonce | Future | SECP256K1 | MUSIG2_NONCE | 0 | ❌ | reserved | ❌ |
+| Lightning | Taproot channels, round 2 | MuSig2 partial signature | Future | SECP256K1 | MUSIG2_SIGN | 0 | ❌ | reserved | ❌ |
 | Lightning | Node transport | secp256k1 ECDH | Best practice | SECP256K1 | KEY_AGREEMENT | 0 ECDH | ❌ | ✅ prim. | ❌ |
 | Matrix | Device signing | Ed25519 | Best practice | ED25519 | SIGN | 0 Ed25519 | ❌ | ✅ prim. | ✅ |
 | Matrix | Olm session | X25519 | Best practice | ED25519 | KEY_AGREEMENT | 0 X25519 | ❌ | ✅ prim. | ❌ |
@@ -103,10 +102,8 @@ code means a different function in each protocol.
 | SSH | Login | Ed25519 | Best practice | ED25519 | SIGN | 0 Ed25519 | ✅ | ✅* | ✅ |
 | SSH | Login | P-256 ECDSA | Best practice (alt) | P256 | SIGN | 0 ECDSA | ❌ | ✅ | ✅ |
 | SSH | Login (`rsa-sha2-256`, `-512`) | RSA | Legacy | RSA | SIGN | 0 PKCS#1 v1.5 | ❌ | future | ❌ |
-| SSH | FIDO `sk-ssh-ed25519` login | Ed25519 with counter | Best practice | ED25519 | FIDO_SIGN | 0 | ❌ | ✅ | ❌ |
-| SSH | FIDO `sk-ecdsa` login | P-256 ECDSA with counter | Best practice | P256 | FIDO_SIGN | 0 | ❌ | ✅ | ⚠️ own use only |
 | Tor onion v3 | Identity | Ed25519 | Best practice | ED25519 | SIGN | 0 Ed25519 | ❌ | ✅ prim. | ✅ |
-| Tor onion v3 | Descriptors | Ed25519, blinded key | Best practice | ED25519 | SIGN | 1 Tor blinded | ❌ | ✅ prim. | ❌ |
+| Tor onion v3 | Descriptors | Ed25519, blinded key | Best practice | ED25519 | SIGN | 1 Tor blinded | ❌ | reserved | ❌ |
 | WireGuard | Handshake | X25519 | Best practice | ED25519 | KEY_AGREEMENT | 0 X25519 | ❌ | ✅ prim. | ❌ |
 | WireGuard | Rosenpass PSK | ML-KEM | Future | ML_KEM | DECAPSULATE | 0 | ❌ | future | ❌ |
 | X.509: code signing | Sign artefact | P-256 ECDSA | Best practice | P256 | SIGN | 0 ECDSA | ❌ | ✅ (no EV) | ✅ (no EV) |
@@ -121,7 +118,7 @@ code means a different function in each protocol.
 | X.509: S/MIME | Sign mail | P-256 ECDSA | Best practice | P256 | SIGN | 0 ECDSA | ❌ | ✅ | ✅ |
 | X.509: S/MIME | Sign mail | RSA | Legacy (dominant) | RSA | SIGN | 0 PKCS#1 v1.5 | ❌ | future | ❌ |
 | X.509: S/MIME | Sign mail | RSA-PSS | Legacy | RSA | SIGN | 1 PSS | ❌ | future | ❌ |
-| X.509: S/MIME | Decrypt mail | P-256 ECDH | Best practice | P256 | KEY_AGREEMENT | 0 ECDH | ❌ | ✅ | ❌ |
+| X.509: S/MIME | Decrypt mail | P-256 ECDH, roles 4 `smime` and 5 `smime-encrypt` | Best practice | P256 | KEY_AGREEMENT | 0 ECDH | ❌ | ✅ prim. | ❌ |
 | X.509: S/MIME | Decrypt mail | RSA | Legacy (dominant) | RSA | DECAPSULATE | 0 PKCS#1 v1.5 | ❌ | future | ❌ |
 | X.509: S/MIME | Decrypt mail | RSA-OAEP | Legacy | RSA | DECAPSULATE | 1 OAEP | ❌ | future | ❌ |
 | X.509: S/MIME | Decrypt mail | ML-KEM | Future | ML_KEM | DECAPSULATE | 0 | ❌ | future | ❌ |
@@ -150,8 +147,9 @@ code means a different function in each protocol.
   SLIP-10 label).
 - PIV needs a PIV card interface that Windows and macOS talk to directly. It
   is not a KeyVault function.
-- FIDO_SIGN and the MuSig2 functions keep state (counter, nonce). In the
-  software vault that state lives in app storage.
+- The MuSig2 functions keep state (the nonce). In the software vault that
+  state will live in app storage. FIDO_SIGN, which keeps a counter, was
+  dropped from 0.6.0 and comes later as a new protocol with its own coin type.
 - RSA and post-quantum are future: reserved in the API, not in the next
   KeyMaster release.
 

@@ -11,7 +11,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Pinned keys for the "all abandon" mnemonic, API 0.6.0 (missions 48.1 and 48.2).
  *
  * <p>The Ed25519 and P-256 values were computed independently of this code by
- * {@code slip10_ref.py} (hashlib/hmac SLIP-10, public keys from Python
+ * {@code tools/slip10_ref.py} (hashlib/hmac SLIP-10, public keys from Python
  * {@code cryptography}), 2026-11-19: 48.1 step 6, the cross-check.
  *
  * <p>The secp256k1 values are the 0.5.x values, unchanged: SLIP-10 under
